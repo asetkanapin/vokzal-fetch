@@ -187,7 +187,7 @@ async function loadBoard() {
     showCacheNotice(null);
     boardState.lastUpdate = new Date();
     $('#board-sub').innerHTML = '';
-    $('#board-sub').append('Загружено с вашего сервера в ' + hhmmss(boardState.lastUpdate) + ' · ', codeEl('GET ' + url));
+    $('#board-sub').append((DEMO ? 'Демо-сервер в браузере, загружено в ' : 'Загружено с вашего сервера в ') + hhmmss(boardState.lastUpdate) + ' · ', codeEl('GET ' + url));
     setStateLine('Готово: ' + items.length + ' ' + plural(items.length, 'поезд', 'поезда', 'поездов') + ' за ' + Math.round(performance.now() - started) + ' мс.', 'ok');
     sfx.play('ok');
     award(source === 'slow' ? 'slow' : 'first');
@@ -268,17 +268,18 @@ function setWs(state, text) {
 }
 
 function connectWS() {
-  if (location.protocol === 'file:') {
-    setWs('offline', 'Откройте через localhost:3000');
-    return;
+  if (DEMO) {
+    // страница открыта файлом: «сокет» работает внутри браузера (demo-server.js)
+    socket = new demoServer.DemoSocket();
+  } else {
+    const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+    socket = new WebSocket(url);
   }
-  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
-  socket = new WebSocket(url);
   setWs('connecting', 'Подключение…');
 
   socket.addEventListener('open', () => {
     retryDelay = 1000;
-    setWs('online', 'Онлайн');
+    setWs('online', DEMO ? 'Демо без сервера' : 'Онлайн');
   });
 
   socket.addEventListener('message', (event) => {
@@ -290,7 +291,7 @@ function connectWS() {
     }
     if (msg.type === 'hello' || msg.type === 'update') applyLive(msg);
     if (msg.type === 'clients') {
-      setWs('online', 'Онлайн · табло: ' + msg.count);
+      setWs('online', (DEMO ? 'Демо · табло: ' : 'Онлайн · табло: ') + msg.count);
       if (msg.count >= 2) award('ws');
     }
     if (msg.type === 'announce') announce(msg.text, true);
@@ -304,7 +305,7 @@ function connectWS() {
 }
 
 function applyLive(msg) {
-  if (msg.type === 'hello' && msg.clients) setWs('online', 'Онлайн · табло: ' + msg.clients);
+  if (msg.type === 'hello' && msg.clients) setWs('online', (DEMO ? 'Демо · табло: ' : 'Онлайн · табло: ') + msg.clients);
   if (!boardState.live || !Array.isArray(msg.items)) return;
   if (boardState.phase === 'loading') return; // не мешаем идущему запросу
   boardState.items = msg.items;
@@ -313,7 +314,7 @@ function applyLive(msg) {
   if (boardState.phase === 'error') setPhase('ok');
   showCacheNotice(null);
   boardState.lastUpdate = new Date(msg.at || Date.now());
-  $('#board-sub').textContent = 'Обновлено в ' + hhmmss(boardState.lastUpdate) + ' через WebSocket, без кнопки';
+  $('#board-sub').textContent = 'Обновлено в ' + hhmmss(boardState.lastUpdate) + (DEMO ? ' автоматически, без кнопки (демо-сокет)' : ' через WebSocket, без кнопки');
   if (msg.reason === 'dispatcher' && Date.now() - boardState.myPatchAt > 1500) {
     const item = msg.items.find((i) => msg.changed.includes(i.id));
     if (item) toast('Диспетчер изменил поезд №' + item.number + ' в другой вкладке');
@@ -689,9 +690,8 @@ async function loadTrainWeather(item, box) {
     boardState.items = cache.items;
     renderBoard(cache.items);
   }
-  if (location.protocol === 'file:') {
-    setPhase('error', { kind: 'file', flap: 'НУЖЕН СЕРВЕР', text: 'Страница открыта как файл. Запустите сервер (npm start) и откройте http://localhost:3000.' });
-    return;
+  if (DEMO) {
+    setTimeout(() => toast('Демо-режим: страница открыта файлом, сервер работает внутри браузера. Настоящий сервер: npm start'), 600);
   }
   loadBoard();
   connectWS();
