@@ -1,0 +1,17 @@
+{
+  "name": "vokzal-fetch",
+  "version": "1.0.0",
+  "description": "Табло вокзала Щучинск: Express, Fetch API, WebSocket (ПМ6, самостоятельная работа)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.3.0",
+    "ws": "^8.22.2"
+  },
+  "private": true
+}

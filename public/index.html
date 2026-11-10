@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вокзал Щучинск · табло</title>
+  <meta name="description" content="Табло отправления вокзала Щучинск: свой сервер на Express, Fetch API, обработка ошибок, отмена запросов, кэш и WebSocket.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Oswald:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="station" href="#board" aria-label="Вокзал Щучинск, табло">
+      <svg class="station-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <rect x="2" y="2" width="36" height="36" rx="8" fill="#111"/>
+        <rect x="9" y="9" width="22" height="16" rx="3" fill="#ffd34d"/>
+        <rect x="12" y="12" width="7" height="6" rx="1" fill="#111"/>
+        <rect x="21" y="12" width="7" height="6" rx="1" fill="#111"/>
+        <circle cx="14" cy="29" r="2.4" fill="#ffd34d"/>
+        <circle cx="26" cy="29" r="2.4" fill="#ffd34d"/>
+        <path d="M9 34h22" stroke="#ffd34d" stroke-width="2"/>
+      </svg>
+      <span class="station-text">
+        <strong>Щучинск</strong>
+        <span>Вокзал · табло отправления</span>
+      </span>
+    </a>
+
+    <nav class="tabs" aria-label="Разделы">
+      <a href="#board" data-view="board">Табло</a>
+      <a href="#lesson" data-view="lesson">Практикум урока</a>
+      <a href="#badges" data-view="badges">Значки <span class="tab-count num" id="badge-count">0/0</span></a>
+    </nav>
+
+    <div class="top-tools">
+      <span class="ws-status" id="ws-status" data-state="connecting" role="status">
+        <span class="ws-dot" aria-hidden="true"></span>
+        <span id="ws-text">Подключение…</span>
+      </span>
+      <button class="icon-btn" id="bell-btn" type="button" aria-label="Вокзальный колокол" title="Вокзальный колокол">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0"/></svg>
+      </button>
+      <button class="icon-btn" id="sound-btn" type="button" aria-pressed="true" aria-label="Звук" title="Звук">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>
+      </button>
+      <button class="icon-btn" id="voice-btn" type="button" aria-pressed="true" aria-label="Голос диктора" title="Голос диктора">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ================= ТАБЛО ================= -->
+    <section class="view" id="view-board" data-view="board" aria-labelledby="board-title">
+      <div class="hall">
+        <div class="board-wrap">
+          <div class="board-head">
+            <div>
+              <h1 id="board-title">Отправление поездов</h1>
+              <p class="board-sub" id="board-sub">Данные приходят с вашего сервера: <code>/api/items</code></p>
+            </div>
+            <div class="board-clock">
+              <button class="clock" id="clock" type="button" aria-label="Текущее время"></button>
+              <p class="weather-here" id="weather-here">Погода в Щучинске…</p>
+            </div>
+          </div>
+
+          <div class="notice" id="cache-notice" role="status" hidden></div>
+
+          <div class="board" id="board" aria-busy="false">
+            <div class="board-row board-header" aria-hidden="true">
+              <span>Время</span>
+              <span>Поезд</span>
+              <span>Направление</span>
+              <span>Путь</span>
+              <span>Статус</span>
+            </div>
+            <ul class="board-body" id="board-body" aria-label="Поезда, щёлкните, чтобы открыть карточку"></ul>
+            <div class="board-message" id="board-message" hidden>
+              <div class="flaps flaps-msg" id="board-message-flaps" aria-hidden="true"></div>
+              <p id="board-message-text"></p>
+              <button class="btn btn-yellow" id="retry-btn" type="button">Повторить</button>
+            </div>
+          </div>
+
+          <div class="ticker" aria-live="polite">
+            <span class="ticker-label">Объявление</span>
+            <div class="ticker-track"><span class="ticker-text" id="ticker-text">Добро пожаловать на вокзал Щучинск. Щёлкните по поезду, чтобы открыть его карточку.</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="desk">
+        <section class="panel" aria-labelledby="switch-title">
+          <header class="panel-head">
+            <h2 id="switch-title">Рубильники</h2>
+            <span class="panel-meta" id="live-state">Живые обновления включены</span>
+          </header>
+          <fieldset class="switches">
+            <legend class="visually-hidden">Откуда загружать табло</legend>
+            <label class="switch-row"><input type="radio" name="source" value="normal" checked><span><strong>Обычный</strong><code>GET /api/items</code></span><em>200</em></label>
+            <label class="switch-row"><input type="radio" name="source" value="500"><span><strong>Авария</strong><code>GET /api/fail/500</code></span><em>500</em></label>
+            <label class="switch-row"><input type="radio" name="source" value="slow"><span><strong>Медленно</strong><code>GET /api/fail/slow</code></span><em>3 с</em></label>
+            <label class="switch-row"><input type="radio" name="source" value="json"><span><strong>Битый JSON</strong><code>GET /api/fail/broken-json</code></span><em>JSON</em></label>
+            <label class="switch-row"><input type="radio" name="source" value="404"><span><strong>Поезд №99</strong><code>GET /api/items/99</code></span><em>404</em></label>
+          </fieldset>
+          <div class="desk-controls">
+            <label class="field">
+              <span>Таймаут</span>
+              <select id="timeout-select">
+                <option value="0">Без таймаута</option>
+                <option value="2000">2 секунды</option>
+                <option value="5000" selected>5 секунд</option>
+              </select>
+            </label>
+            <button class="btn btn-dark" id="reload-btn" type="button">Обновить табло</button>
+          </div>
+          <p class="state-line" id="state-line" role="status">Выберите рубильник и нажмите «Обновить табло». Двойной щелчок даст один запрос.</p>
+        </section>
+
+        <section class="panel netlog-panel" aria-labelledby="net-title">
+          <header class="panel-head">
+            <h2 id="net-title">Сеть</h2>
+            <button class="btn-text" id="net-clear" type="button">Очистить</button>
+          </header>
+          <div class="netlog-scroll">
+            <table class="netlog">
+              <thead><tr><th scope="col">Метод</th><th scope="col">Адрес</th><th scope="col" class="num">Статус</th><th scope="col" class="num">Время</th><th scope="col" class="num">Размер</th></tr></thead>
+              <tbody id="netlog"></tbody>
+            </table>
+          </div>
+          <p class="hint">Те же запросы видны в DevTools → Network, а на сервере — в терминале.</p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= ПРАКТИКУМ ================= -->
+    <section class="view" id="view-lesson" data-view="lesson" aria-labelledby="lesson-title" hidden>
+      <header class="page-head">
+        <h1 id="lesson-title">Практикум урока: Fetch API</h1>
+        <p>Задания из плана урока. Запросы идут к JSONPlaceholder и Open-Meteo, результат выводится в один контейнер <code>#output</code>.</p>
+      </header>
+      <div class="lesson">
+        <ol class="tasks">
+          <li class="task">
+            <div><h2>Один пост</h2><code>GET /posts/1</code><p>Заголовок и текст первого поста, через <code>.then()</code>.</p></div>
+            <button class="btn btn-dark" id="post-btn" type="button">Загрузить пост</button>
+          </li>
+          <li class="task">
+            <div><h2>Пользователи</h2><code>GET /users</code><p>Карточки: имя, email, город, компания. Через async/await.</p></div>
+            <button class="btn btn-dark" id="users-btn" type="button">Загрузить пользователей</button>
+          </li>
+          <li class="task">
+            <div><h2>Посты пользователя</h2><code>GET /posts?userId=…</code><p>Параметр запроса в адресе.</p></div>
+            <form class="task-form" id="posts-form">
+              <label class="field field-inline">
+                <span>userId</span>
+                <input type="number" id="user-id" min="1" max="10" value="1" inputmode="numeric" required aria-describedby="user-id-hint">
+              </label>
+              <button class="btn btn-dark" type="submit">Загрузить посты</button>
+              <span class="field-hint" id="user-id-hint">от 1 до 10</span>
+            </form>
+          </li>
+          <li class="task">
+            <div><h2>Ошибка</h2><code>GET /posts/99999</code><p>Несуществующий адрес: проверка <code>response.ok</code>.</p></div>
+            <button class="btn btn-ghost" id="missing-btn" type="button">Запросить несуществующий</button>
+          </li>
+          <li class="task">
+            <div><h2>Погода в Астане</h2><code>api.open-meteo.com</code><p>Температура и скорость ветра. Задание со звёздочкой.</p></div>
+            <button class="btn btn-dark" id="weather-btn" type="button">Узнать погоду</button>
+          </li>
+        </ol>
+        <section class="output-wrap" aria-labelledby="output-title">
+          <header class="panel-head">
+            <h2 id="output-title">Результат</h2>
+            <span class="panel-meta" id="output-meta"></span>
+          </header>
+          <div id="output" aria-live="polite">
+            <p class="empty">Нажмите любую кнопку слева. Здесь появится ответ сервера.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ================= ЗНАЧКИ ================= -->
+    <section class="view" id="view-badges" data-view="badges" aria-labelledby="badges-title" hidden>
+      <header class="page-head">
+        <h1 id="badges-title">Значки пассажира</h1>
+        <p id="badges-sub">Каждый значок — одно состояние из задания. Соберёте все обычные — значит, проверили всё, что нужно для отчёта.</p>
+      </header>
+      <ul class="badges" id="badges"></ul>
+      <button class="btn-text" id="badges-reset" type="button">Сбросить значки</button>
+    </section>
+  </main>
+
+  <!-- Карточка поезда -->
+  <dialog class="train" id="train-dialog" aria-labelledby="train-title">
+    <form method="dialog" class="train-close"><button class="icon-btn" aria-label="Закрыть">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button></form>
+    <div id="train-body"></div>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="egg-train" id="egg-train" aria-hidden="true" hidden></div>
+
+  <script src="fun.js"></script>
+  <script src="api.js"></script>
+  <script src="flap.js"></script>
+  <script src="board.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
